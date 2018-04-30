@@ -1,12 +1,15 @@
 import tensorflow as tf
 import VNet as vn
 import numpy as np
-from scipy.misc import imread,imresize
+
+from scipy.misc.pilutil import imread
 from os import  walk
 from os.path import join
 
-DATA_DIR = 'D:\\zhengshunjie\\workspace\\deeplab\\组织切片2018.3.29\\清洗过 - 副本\\原图像'
-LABLE_DIR= 'D:\\zhengshunjie\\workspace\\deeplab\\组织切片2018.3.29\\清洗过 - 副本\\lable'
+DATA_DIR='D:\\program\\python\\job-logging.git\\trunk\\VNet-Tensorflow-master\\清洗过 - 副本\\原图像'
+LABLE_DIR='D:\\program\\python\\job-logging.git\\trunk\\VNet-Tensorflow-master\\清洗过 - 副本\\label'
+# DATA_DIR = 'D:\\zhengshunjie\\workspace\\deeplab\\组织切片2018.3.29\\清洗过 - 副本\\原图像'
+# LABLE_DIR= 'D:\\zhengshunjie\\workspace\\deeplab\\组织切片2018.3.29\\清洗过 - 副本\\lable'
 BATCH_SIZE = 8
 NUM_CLASSES = 2
 IMG_HEIGHT = 616
@@ -17,20 +20,25 @@ def read_images(data_path,lable_path):
     lable_filenames=next(walk(lable_path))[2]
     data_num_files = len(data_filenames)
     lable_num_files=len(lable_filenames)
-    data_images = np.zeros((data_num_files,IMG_HEIGHT,IMG_WIDTH,3),dtype=np.uint8)
-    lable_images=np.zeros((lable_num_files,IMG_HEIGHT,IMG_WIDTH),dtype=np.uint8)
+    data_images = np.zeros((data_num_files,IMG_HEIGHT,IMG_WIDTH,3),dtype=np.float32)
+    lable_images=np.zeros((lable_num_files,IMG_HEIGHT,IMG_WIDTH),dtype=np.float32)
+    valuequeue=None
+    valuelabel=None
     for i in range(len(data_filenames)):
         data_img=imread(join(data_path,data_filenames[i]))
         lable_img=imread(join(lable_path,lable_filenames[i]),mode='L')
-        data_images[i]=data_img
-        lable_images[i]=lable_img
-
-    return data_images,lable_images
+        data_img = tf.cast(data_img,tf.float32)
+        lable_img=tf.cast(lable_img,tf.float32)
+        # data_images[i]=data_img
+        # lable_images[i]=lable_img
+        valuequeue=tf.train.input_producer(data_img,shuffle=False)
+        valuelabel=tf.train.input_producer(lable_img,shuffle=False)
+    return valuequeue,valuelabel
 
 images,lables = read_images(DATA_DIR,LABLE_DIR)
 
-tf_input = tf.placeholder(dtype=tf.uint8, shape=(1, IMG_WIDTH, IMG_HEIGHT, 0, 3))
-tf_output= tf.placeholder(dtype=tf.uint8, shape=(1, IMG_HEIGHT, IMG_HEIGHT, 0, 1))
+tf_input = tf.placeholder(dtype=tf.float32, shape=(1, IMG_WIDTH, IMG_HEIGHT, 0, 3))
+tf_output= tf.placeholder(dtype=tf.float32, shape=(IMG_HEIGHT, IMG_HEIGHT, 1))
 
 logits = vn.v_net(tf_input,1.0,3)
 loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=tf_output,logits=logits))
@@ -38,17 +46,21 @@ train_step = tf.train.ProximalGradientDescentOptimizer(0.1).minimize(loss)
 
 init=tf.global_variables_initializer()
 
+saver=tf.train.Saver()
+file_name='saved_model/model.ckpt'
 def main():
     with tf.Session() as sess:
         sess.run(init)
         for epoch in range(500):
             for batch in range(BATCH_SIZE):
-                num=np.random(0,700)
-                batch_xs=images[num]
-                batch_ys=lables[num]
+                num=np.random.uniform(0,700)
+                batch_xs=images.dequeue()
+                batch_ys=lables.dequeue()
+
                 sess.run(train_step,feed_dict={tf_input:batch_xs,tf_output:batch_ys})
 
             print("loss:",loss)
+        saver.saver(sess,file_name)
 
 
 if __name__=='__main__':
